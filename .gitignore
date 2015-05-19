@@ -1,0 +1,22 @@
+# local sdk path
+local.properties
+
+# build / generated
+.gradle/
+build/
+captures/
+
+# user-specific project metadata
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/libraries/
+
+# private keystore info
+app/private.gradle
+
+# keep an 'empty' assets directory in place
+app/src/main/assets/**
+!app/src/main/assets/.placeholder
+
+# clutter
+.DS_Store

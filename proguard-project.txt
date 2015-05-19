@@ -1,0 +1,38 @@
+# To enable ProGuard in your project, edit project.properties
+# to define the proguard.config property as described in that file.
+#
+# Add project specific ProGuard rules here.
+# By default, the flags in this file are appended to flags specified
+# in ${sdk.dir}/tools/proguard/proguard-android.txt
+# You can edit the include path and order by changing the ProGuard
+# include property in project.properties.
+#
+# For more details, see
+#   http://developer.android.com/guide/developing/tools/proguard.html
+
+# Project-specific options:
+
+#-dontobfuscate
+
+# Define the plugin class so that it doesn't get stripped out
+-keep public class plugin.library.LuaLoader
+
+# keep all the classes from Corona's jars
+-keep class com.ansca.corona.** { *; }
+-keep class com.naef.jnlua.** { *; }
+-keep class network.**
+
+# Libraries reference classes not in the Android runtime - block those warnings
+# references by math lib
+-dontwarn java.awt.**
+# referenced by jnlua.script
+-dontwarn javax.script.**
+# jnlua script itself
+-dontwarn com.naef.jnlua.script.**
+
+# If your project uses WebView with JS, uncomment the following
+# and specify the fully qualified class name to the JavaScript interface
+# class:
+#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
+#   public *;
+#}

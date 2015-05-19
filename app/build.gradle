@@ -1,0 +1,317 @@
+/*
+Gradle script for building the Corona Enterprise sample application in Android Studio.
+This is a first draft written by an inexperienced programmer and is correspondingly
+fragile and restrictive... as-is, this will work for the default build types (debug and release)
+but does not support additional build types OR additional product flavors.  (Adding additional
+build types should be relatively easy, but I haven't looked in to product flavors much at all.)
+
+The first step to making this work is to port Corona's custom -pre-build and -post-package
+Ant tasks which compile your Lua sources and certify built APKs.  Unfortunately the android gradle
+plugin build sequence is different enough from the Ant build sequence that this is not
+straightforward.  These tasks need to be redefined per build variant, but the build variants
+list is generated at runtime.  Additionally, there doesn't seem to be a good time in the build
+to insert Corona's CertifyBuild.sh script, so we end up replacing the APK signature 'manually'
+after running CertifyBuild, because the script invalidates the signature which is created
+automatically during the build.
+ */
+
+apply plugin: 'com.android.application'
+
+/* android plugin configuration block */
+android {
+    compileSdkVersion 22
+    buildToolsVersion "22.0.1"
+
+    defaultConfig {
+        applicationId "com.mycompany.app"
+        minSdkVersion 10
+        targetSdkVersion 22
+        // multiDexEnabled true // if necessary
+    }
+
+    signingConfigs {
+        release {
+            storeFile file("/path/to/release/keystore")
+            storePassword ""
+            keyAlias "keyname"
+            keyPassword ""
+        }
+        debug {
+            storeFile file("${System.properties['user.home']}/.android/debug.keystore")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.txt'
+            signingConfig signingConfigs.release
+        }
+        debub {
+            debuggable true
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    /* dex options
+    dexOptions {
+        incremental false
+        preDexLibraries = false
+        jumboMode = false
+        javaMaxHeapSize "2048M"
+
+    }
+    */
+
+    /* If using build tools v.19+, you can use Java 7 features with these settings
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_7
+        targetCompatibility JavaVersion.VERSION_1_7
+    }
+     */
+
+}
+
+/*
+You can set release keystore passwords from a separate file (excluded from version control)
+with these contents:
+
+    android.signingConfigs.release.storePassword = 'YourStorePassword'
+    android.signingConfigs.rleease.keyPassword = 'YourKeyPassword'
+
+and specifying the file name here:
+
+    apply from: 'private.gradle'
+ */
+
+
+dependencies {
+
+    /* module dependencies */
+    compile project(':coronaLib')
+
+    /* remote dependencies from jcenter */
+    // compile 'com.android.support:appcompat-v7:22.1.1'
+
+    /* Jar libraries from `project/app/libs/` */
+    // compile fileTree(dir: 'libs', include: ["*.jar"])
+}
+
+
+/* * * * * * * * * * * Special Sauce starts here * * * * * * * * * */
+
+/**
+ * Helper Method: prints a message, executes a string as an external process in the specified directory,
+ * waits for it to finish and consumes its output and error streams, and will stop the build
+ * with an error message if the process exit code was not zero.
+ * @param command - shell command to run
+ * @param workingDir - directory to run the command in
+ * @param msg - message to print before running the command
+ * @param errMsg - message that goes with the exception when something goes wrong
+ */
+void runCommand(String command, File workingDir, String msg, String errMsg) {
+    def sout = new StringBuilder()
+    def serr = new StringBuilder()
+
+    println msg
+
+    Process p = command.execute([], workingDir)
+
+    p.waitForProcessOutput(sout, serr)
+
+    // uncomment this if you want to see the command output
+    // println "> $sout"
+
+    if (p.exitValue() != 0) {
+        println "err > ${serr.toString()}"
+        throw new GradleException(errMsg) // will terminate the build
+    }
+}
+
+/**
+ * Method: Re-signs an APK using shell commands.
+ * Based in this ant task: http://stackoverflow.com/a/18331895
+ * Assumes the availability of unix-y rm, mkdir, zip, unzip; and jarsigner in the path.
+ * Could (and likely should) be re-written as a series of Copy, Delete, Zip, and Exec tasks,
+ * which would be more portable.
+ * @param path - full file path to APK
+ * @param isRelease - set true to use the release keystore
+ */
+void resignApk(String pathToApk, boolean isRelease) {
+    def signingConfig = isRelease ? android.signingConfigs.release : android.signingConfigs.debug
+
+    // work relative to the apk file
+    File apkFile = file(pathToApk).absoluteFile
+    File apkFolder = file(apkFile.parent)
+    File tmpFolder = file("$apkFolder/tmp")
+
+    // remove the tmp dir if it exists
+    "rm -rf tmp".execute([], apkFolder).waitFor()
+
+    // create tmp dir inside the apk folder
+    runCommand("mkdir -p tmp".toString(), apkFolder,
+            '...Creating tmp directory',
+            'Failed to create tmp directory')
+
+    // unzip the apk into the tmp dir (-o for 'overwrite existing')
+    runCommand("unzip -o ${apkFile}".toString(), tmpFolder,
+            '...unzipping APK',
+            'Failed to extract APK')
+
+    // remove meta-inf folder in tmp
+    runCommand("rm -rf META-INF".toString(), tmpFolder,
+            '...removing META-INF',
+            'Failed to delete META-INF')
+
+    // delete the original APK in the apk folder
+    runCommand("rm ${apkFile}".toString(), apkFolder,
+            '...removing original APK',
+            'Failed to delete original APK')
+
+    // zip tmp as APK
+    // puts everything in the working directory in the apk - so set the working directory to tmp
+    runCommand("zip -r ../${apkFile.name} . *".toString(), tmpFolder,
+            '...packing APK',
+            'Failed to re-zip the APK from tmp dir')
+
+    // remove tmp directory (don't really care if it fails...
+    "rm -rf tmp".execute([], apkFolder).waitFor()
+
+    // run jarsigner on the APK
+    String signingCommand = "jarsigner -sigalg SHA1withRSA -digestalg SHA1" +
+            " -keystore ${signingConfig.storeFile.absolutePath}" +
+            " -storepass ${signingConfig.storePassword}" +
+            " -keypass ${signingConfig.keyPassword}" +
+            " ${apkFile.name} ${signingConfig.keyAlias}"
+
+    runCommand(signingCommand.toString(), apkFolder,
+            '...signing APK with jarsigner',
+            'Failed to sign APK w/ jarsigner')
+
+}
+
+// get a path to the Corona Enterprise install
+def coronaEnterpriseDir = System.getenv('CORONA_ENTERPRISE_DIR') ?: '/Applications/CoronaEnterprise'
+
+// project directory
+def basedir = projectDir.absolutePath
+
+/*
+ applicationVariants is composed of Build Types X Flavors, and is populated dynamically at runtime
+ by the android gradle plugin.  Thus, the static verifier kind of hates this section.
+ The collection will be initialized when we access it, after which the buildTypes and productFlavors
+ configs can no longer be altered!
+ (http://tools.android.com/tech-docs/new-build-system/user-guide#TOC-Manipulating-tasks)
+ */
+android.applicationVariants.all { variant ->
+
+    /*
+    config_param specifies whether or not the Corona Builder system should produce a debug or
+    release build.  This only checks the two main android build types, but could be extended
+    to support any number of build types as long as config_param ends up mapped to either
+    'debug' or 'release'
+    */
+    def config_param = variant.buildType.name == 'debug' ? 'debug' : 'release'
+
+    /**
+     * Task: run the Corona Builder
+     * This task is re-defined per variant so we can check the Build Type
+     * PROBLEM: When building multiple APKs at once, the corona builder script will be called
+     * multiple times, but will overwrite resources.car each time!
+     */
+    def coronaBuildTask = task("coronaBuild${variant.name.capitalize()}", type: Exec) {
+
+        // run this...
+        executable = "$coronaEnterpriseDir/Corona/mac/bin/lua"
+
+        // ...in this directory...
+        workingDir = "$coronaEnterpriseDir/Corona/mac/bin"
+
+        // ...with these arguments (List<String>) ...
+        args = [
+                "-e",
+                "package.path='$coronaEnterpriseDir/Corona/shared/bin/?.lua;$coronaEnterpriseDir/Corona/shared/bin/?/init.lua;'..package.path".toString(),
+                "$coronaEnterpriseDir/Corona/shared/bin/Compile.lua".toString(),
+                "mac",
+                "$coronaEnterpriseDir".toString()
+        ]
+
+        // ...and with these environment variables (Map<String, Object>)
+        environment = [
+                LUA_CPATH                   : "$coronaEnterpriseDir/Corona/mac/bin/?.so",
+                TARGET_PLATFORM             : 'android',
+                PROJECT_DIR                 : "$basedir",    // ...where is ${basedir}? A: Parent directory of build.xml
+                CORONA_COPY_PNG_PRESERVE    : '--preserve',
+                CONFIGURATION               : "$config_param",
+                CORONA_ASSETS_DIR           : "${basedir}/../../Corona",    // ${basedir}/../Corona/
+                CORONA_TARGET_RESOURCES_DIR : "${basedir}/src/main/assets", // ${basedir}/assets/
+                CORONA_TARGET_EXECUTABLE_DIR: "${basedir}/src/main/assets"  // ${basedir}/assets/
+
+        ]
+
+        // then when the task runs, the command should execute... but do this first:
+        doFirst {
+            println "===== Corona Builder ====="
+        }
+    }
+
+    // run the corona builder before merging assets
+    variant.mergeAssets.dependsOn coronaBuildTask
+
+    /*
+    There may be more than one APK per variant, so the APKs are specified as a list that we have
+    to iterate through.  Note that the docs on the Android Tools website appear to be out of date
+    in this regard: http://stackoverflow.com/a/27238430
+     */
+    variant.outputs.each { output ->
+
+        def unaligned_apk_name = "${output.outputFile.absolutePath}".replace('.apk', '-unaligned.apk')
+
+        /*
+        After much investigation, it seems that there isn't a good place in the list of Android
+        plugin build tasks to insert the Corona libcorona.so ceritifcation script.  To early,
+        and an APK does not exist yet for that script to unpack; one task later, and the APK
+        exists but is already signed, so the certification script invalidates the APK signature.
+        So, we will run the CertifyBuild script on the APK and re-sign the APK 'manually'.
+        Desired order:
+        package > corona certify > re-sign > zipAlign
+         */
+
+        /**
+         * Task: run Corona's CertifyBuild script
+         * This task will invalidate the signature of the APK because it unzips the APK, alters
+         * files, and re-zips it.
+         */
+        def coronaCertifyTask = task("coronaCertify${variant.name.capitalize()}", type: Exec, dependsOn: output.packageApplication) {
+            executable = "$coronaEnterpriseDir/Corona/mac/bin/CertifyBuild.sh"
+            environment = [
+                    CORONA_APK_PATH: unaligned_apk_name, // path to the APK
+                    CORONA_RESOURCE_CAR_PATH: "$basedir/src/main/assets"
+            ]
+            doFirst {
+                println "===== Corona CertifyBuild.sh ====="
+            }
+        }
+
+        /**
+         * Task: resign the APK since the Corona certification script broke the original signature.
+         * Currently this is done w/ shell commands; it could be written to use other Gradle Tasks
+         * in sequence?
+         */
+        def resignTask = task("resign${variant.name.capitalize()}", dependsOn: coronaCertifyTask) {
+            doFirst {
+                println '===== Resign the APK ====='
+            }
+            doLast {
+                resignApk(unaligned_apk_name, variant.buildType.name == 'release')
+            }
+        }
+
+        output.zipAlign.dependsOn(resignTask)
+
+    }
+
+}
