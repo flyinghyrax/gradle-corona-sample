@@ -50,7 +50,7 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.txt'
             signingConfig signingConfigs.release
         }
-        debub {
+        debug {
             debuggable true
             signingConfig signingConfigs.debug
         }
