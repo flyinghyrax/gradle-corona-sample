@@ -80,7 +80,7 @@ You can set release keystore passwords from a separate file (excluded from versi
 with these contents:
 
     android.signingConfigs.release.storePassword = 'YourStorePassword'
-    android.signingConfigs.rleease.keyPassword = 'YourKeyPassword'
+    android.signingConfigs.release.keyPassword = 'YourKeyPassword'
 
 and specifying the file name here:
 
