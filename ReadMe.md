@@ -1,6 +1,16 @@
 # Corona Enterprise Android Studio Sample  #
 
-Example of how to setup the Android portion of a Corona Enterprise project for Android Studio.
+Example of how to setup the Android portion of a Corona Enterprise project for Android Studio. See [this forum thread](https://forums.coronalabs.com/topic/54273-android-studio-integration-status/) for some background.
+
+### *! This sample is outdated and unnecessary !*
+
+Corona Enterprise now officially supports Android studio integration! ([announcement blog post](https://coronalabs.com/blog/2016/05/25/android-studio-templates-now-available-for-corona-enterprise/))
+
+See the [official documentation](https://docs.coronalabs.com/native/android/index.html) for using Corona Enterprise on Android: specifically the [Android Studio integration guide](https://docs.coronalabs.com/native/android/androidStudio/index.html) and the [project structure guide](https://docs.coronalabs.com/native/android/androidProject.html). 
+
+This repository will remain available for historical purposes.
+
+--------------------------------------------------
 
 ## Project Structure
 
